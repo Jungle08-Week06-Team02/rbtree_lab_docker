@@ -347,6 +347,31 @@ void test_to_array_suite()
   delete_rbtree(t);
 }
 
+void rbtree_print(const rbtree *t, node_t *p)
+{
+    if (p != t->nil)
+    {
+        printf("%d ", p->key);
+        if (p->color == RBTREE_BLACK)
+            printf("BLACK ");
+        else
+            printf("RED ");
+        printf("(LEFT = ");
+        if (p->left != t->nil)
+            printf("%d ", p->left->key);
+        else
+            printf("NIL ");
+        printf("/ RIGHT = ");
+        if (p->right != t->nil)
+            printf("%d", p->right->key);
+        else
+            printf("NIL");
+        printf(")\n");
+        rbtree_print(t, p->left);
+        rbtree_print(t, p->right);
+    }
+}
+
 void test_find_erase(rbtree *t, const key_t *arr, const size_t n)
 {
   for (int i = 0; i < n; i++)
@@ -362,6 +387,10 @@ void test_find_erase(rbtree *t, const key_t *arr, const size_t n)
     assert(p != NULL);
     assert(p->key == arr[i]);
     rbtree_erase(t, p);
+    // 삽입 삭제 후 앞뒤 확인하고 싶을 때
+    // printf("After delete %d:\n", arr[i]);
+    // rbtree_print(t, t->root);
+    // printf("\n");
   }
 
   for (int i = 0; i < n; i++)

@@ -1,5 +1,4 @@
 #include "rbtree.h"
-
 #include <stdlib.h>
 
 rbtree *new_rbtree(void) {
@@ -28,7 +27,7 @@ rbtree *new_rbtree(void) {
   nil->left = nil->right = nil->parent = NULL;
   
   t->nil = nil;
-  t->root = nil;
+  t->root = t->nil;
 
   return t;
 
@@ -102,8 +101,8 @@ static void _right_rotate(rbtree *t , node_t *x) {
   y->parent = x->parent;
   
   if(x->parent == t->nil) t->root = y;
-  else if(x == x->parent->left) x->parent->left = y;
-  else x->parent->right = y;
+  else if(x == x->parent->right) x->parent->right = y;
+  else x->parent->left = y;
 
   y->right = x;
   x->parent = y;
@@ -114,7 +113,7 @@ static void _rb_insert_fixup(rbtree *t, node_t *z) {
   
   node_t *y = NULL;
 
-  while (z->parent->color == RBTREE_RED) // R(P)-R(N) 상황
+  while (z->parent->color == RBTREE_RED) // B(G)-R(P)-R(N) 상황
   {
     if (z->parent == z->parent->parent->left) // 아부지가 할부지 왼팔이면
     {
@@ -190,8 +189,8 @@ node_t *rbtree_insert(rbtree *t, const key_t key) {
   // malloc은 void* 반환 → 포인터 변수로 받아야 하며, 자동 형변환됨
   // C에서는 void*가 자동 형변환되기 때문에 명시적 형변환은 생략 가능하지만, C++에서는 명시적 형변환 필요
  
-  node_t *z;
-  z = (node_t *)calloc(1, sizeof(node_t));
+  node_t *z = (node_t *)calloc(1, sizeof(node_t));
+
   z->key = key;
   z->color = RBTREE_RED;
   node_t *x = t->root;
@@ -213,9 +212,7 @@ node_t *rbtree_insert(rbtree *t, const key_t key) {
   z->left = t->nil;
   z->right = t->nil;
   _rb_insert_fixup(t, z);
-
   return z;
-
 } 
 
 
@@ -288,14 +285,201 @@ node_t *rbtree_max(const rbtree *t) {
 }
 
 
+// 삭제를 위해 successor 같은 거 찾았을 때 자리 교환하는 내부 함수 구현
+// u : 삭제할 노드
+// v : u를 대체할 노드. 리프일 수도 있고, T.nil일 수도 있음
+// 부모 포인터(v->parent)는 갱신하지만, v의 자식 포인터(v->left, v->right)는 갱신 안함
+static void _rb_transplant(rbtree *t, node_t *u, node_t *v) {
+  if (u->parent == t->nil) t->root = v;
+  else if (u == u->parent->left) u->parent->left = v;
+  else u->parent->right = v;
+  v->parent = u->parent;
+}
+
+
+// 지우려고 하는 노드의 successor를 찾는 내부 함수 구현
+static node_t *_subtree_min(const rbtree *t, node_t *node) {
+  while (node->left != t->nil)
+    node = node->left;
+  return node;
+}
+
+
+// 삭제 시 조건 위반 생길 경우 수정하는 내부 함수 구현
+static void _rb_delete_fixup(rbtree *t, node_t *x) {
+  
+  node_t *w = t->nil;
+  
+  while ((x != t->root) && (x->color == RBTREE_BLACK)) 
+  {
+    if (x == x->parent->left) // 나(DB) 왼쪽, 형제는 오른쪽
+    {
+      w = x->parent->right;
+      
+      if (w->color == RBTREE_RED) // case1 (형제는 red)
+        {
+          w->color = RBTREE_BLACK;
+          x->parent->color = RBTREE_RED;
+          _left_rotate(t, x->parent);
+          w = x->parent->right; // rotate 후, x의 형제가 바뀌었으니 w로 가리키는 곳 업데이트
+        }
+      
+      if ((w->left->color == RBTREE_BLACK)&&(w->right->color == RBTREE_BLACK)) // case2 (형제, 형제 자식 블랙)
+        {  
+        w->color = RBTREE_RED;
+        x = x->parent;
+        }
+      
+      else // 형제는 black, 형제의 자식 중 red가 있을 경우
+      {
+      
+        if (w->right->color == RBTREE_BLACK) // case3 (형제의 왼쪽 자식이 red, 나는 현재 왼쪽 자식이므로 더 가까운 조카가 빨강)
+        {
+          w->left->color = RBTREE_BLACK;
+          w->color = RBTREE_RED;
+          _right_rotate(t, w);
+          w = x->parent->right;
+        }
+      
+        // case4 (형제의 오른쪽 자식이 red, 나와 먼 조카)
+        w->color = x->parent->color;
+        x->parent->color = RBTREE_BLACK;
+        w->right->color = RBTREE_BLACK;
+        _left_rotate(t, x->parent);
+        x = t->root; // case4의 해결로 모든 조건이 충족됐으므로 while 문 탈출을 위한 조건을 걸어줌
+      }
+    }
+
+    else // 나(DB) 오른쪽, 형제는 왼쪽
+    {
+      w = x->parent->left;
+      
+      if (w->color == RBTREE_RED) // case1 (형제는 red)
+        {
+          w->color = RBTREE_BLACK;
+          x->parent->color = RBTREE_RED;
+          _right_rotate(t, x->parent);
+          w = x->parent->left; // rotate 후, x의 형제가 바뀌었으니 w로 가리키는 곳 업데이트
+        }
+      
+      if ((w->right->color == RBTREE_BLACK)&&(w->left->color == RBTREE_BLACK)) // case2 (형제, 형제 자식 블랙)
+        {  
+        w->color = RBTREE_RED;
+        x = x->parent;
+        }
+      
+      else // 형제는 black, 형제의 자식 중 red가 있을 경우
+      {
+      
+        if (w->left->color == RBTREE_BLACK) // case3 (형제의 오른쪽 자식이 red, 나는 현재 오른쪽 자식이므로 더 가까운 조카가 빨강)
+        {
+          w->right->color = RBTREE_BLACK;
+          w->color = RBTREE_RED;
+          _left_rotate(t, w);
+          w = x->parent->left;
+        }
+      
+        // case4 (형제의 왼쪽 자식이 red, 나와 먼 조카)
+        w->color = x->parent->color;
+        x->parent->color = RBTREE_BLACK;
+        w->left->color = RBTREE_BLACK;
+        _right_rotate(t, x->parent);
+        x = t->root; // case4의 해결로 모든 조건이 충족됐으므로 while 문 탈출을 위한 조건을 걸어줌
+      }
+    }
+
+  }
+  x->color = RBTREE_BLACK; // 계속 위로 올라가서 x가 루트가 됐을 경우, 루트 블랙 조건 보장
+}
+
+
 int rbtree_erase(rbtree *t, node_t *p) {
+  
   // TODO: implement erase
+  // RB tree 내부의 ptr로 지정된 node를 삭제하고 메모리 반환
+  // test 조건엔 없지만 삭제하는 노드 key 반환하도록 해뒀음 
+  
+  node_t *x = t->nil; // y 자리를 대체할 노드
+  node_t *y = p; // 실제 삭제되는 노드 (처음엔 p 자신, 나중엔 successor가 될 수도 있음)
+  color_t y_original_color = y->color;
+
+  // case 1: 왼쪽 자식이 없음 → 오른쪽 자식으로 대체 (혹은 nil)
+  if (p->left == t->nil) {
+    x = p->right;
+    _rb_transplant(t, p, p->right);
+  }
+
+  // case 2: 오른쪽 자식이 없음 → 왼쪽 자식으로 대체
+  else if (p->right == t->nil) {
+    x = p->left;
+    _rb_transplant(t, p, p->left);
+  }
+
+  // case 3: 양쪽 자식 모두 있음
+  else {
+    // 후계자 y = 오른쪽 서브트리의 최소 노드
+    y = _subtree_min(t, p->right);
+    y_original_color = y->color;
+    x = y->right;
+
+    // case 3-1: y가 p의 직속 오른쪽 자식이 아님
+    if (y != p->right) {
+      // y 자리를 y의 오른쪽 자식으로 대체
+      _rb_transplant(t, y, y->right);
+
+      // y에 p의 오른쪽 자식 연결
+      y->right = p->right;
+      y->right->parent = y;
+    } else {
+      // case 3-2: y가 p의 직속 오른쪽 자식 → transplant 생략했으므로 직접 부모 연결
+      x->parent = y;
+    }
+
+    // p 자리를 y로 대체 (y는 이제 p의 위치로 올라옴)
+    _rb_transplant(t, p, y);
+
+    // y에 p의 왼쪽 자식 연결
+    y->left = p->left;
+    y->left->parent = y;
+
+    // 삭제 전 p의 색을 y에게 전달 (트리 속성 유지용)
+    y->color = p->color;
+  }
+
+  // 🔧 삭제된 노드가 BLACK일 경우 → 속성 위배 가능성 → fixup 필요
+  if (y_original_color == RBTREE_BLACK) {
+    _rb_delete_fixup(t, x);
+  }
+
+  // 삭제된 노드 메모리 해제
+  free(p);
+  p = NULL;
   return 0;
+}
+
+
+// 중위순회(n만큼) 내부 함수 구현
+static void _inorder_tree(const rbtree *t, node_t *node, key_t *arr, size_t n, int *idx) {
+  
+  if (node == t->nil || *idx >= n) return;
+
+  _inorder_tree(t, node->left, arr, n, idx); 
+  if (*idx < n) arr[(*idx)++] = node->key; 
+  _inorder_tree(t, node->right, arr, n, idx);
+
 }
 
 
 int rbtree_to_array(const rbtree *t, key_t *arr, const size_t n) {
+  
   // TODO: implement to_array
-  return 0;
-}
+  // RB tree의 내용을 *key 순서대로* 주어진 array로 변환
+  // array의 크기는 n으로 주어지며 tree의 크기가 n 보다 큰 경우에는 순서대로 n개 까지만 변환
+  // array의 메모리 공간은 이 함수를 부르는 쪽에서 준비하고 그 크기를 n으로 알려줍니다.
+  
+  int idx = 0;
+  _inorder_tree(t, t->root, arr, n, &idx);
 
+  return idx;
+
+}
