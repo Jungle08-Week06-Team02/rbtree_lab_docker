@@ -1,10 +1,10 @@
-.PHONY: test
-
-CFLAGS=-I ../src -Wall -g #-DSENTINEL
-
-test: test-rbtree
-	./test-rbtree
-	valgrind ./test-rbtree
+.PHONY: test									
+												
+CFLAGS=-I ../src -Wall -g -DSENTINEL			
+												
+test: test-rbtree								
+	./test-rbtree								
+	valgrind ./test-rbtree						
 
 test-rbtree: test-rbtree.o ../src/rbtree.o
 
